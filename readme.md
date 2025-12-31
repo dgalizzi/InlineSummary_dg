@@ -56,6 +56,10 @@ This specific style hides the Message Actions buttons from older messages, which
 
 ## Changelog
 
+#### v1.0.3
+Chat will now attempt to scroll after reload to the summary message or the restored messages. (Note, can sometimes be unreliable as reloading chat triggers a scroll to the bottom and I'm tryingto scroll up, but should be better than nothing)
+Added some protections against double-registering event handlers during hot reloads based on ArtemDMI fork.
+
 #### v1.0.2
 Added end prompt option, which is inserted after the content to summarise. (For models that have options like `/nothink`)
 Added option to specify a connection profile.

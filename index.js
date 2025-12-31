@@ -51,6 +51,17 @@ const kDefaultSettings = Object.freeze({
 
 const gST = SillyTavern.getContext();
 let gSettings = {};
+const kILSGlobalKey = Symbol.for("InlineSummary.ILS");
+
+function GetILSInstance()
+{
+	const g = globalThis;
+
+	if (!g[kILSGlobalKey])
+		g[kILSGlobalKey] = {};
+
+	return g[kILSGlobalKey];
+}
 
 // =========================
 // Helpers
@@ -69,6 +80,11 @@ function GetDepthColourWithAlpha(depth, alpha)
 function GetMessageByIndex(msgIndex)
 {
 	return gST.chat[msgIndex];
+}
+
+function Sleep(ms)
+{
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // =========================
@@ -157,6 +173,25 @@ function CreateEmptySummaryMessage(originalMessages)
 	summary.extra[kExtraDataKey][kOriginalMessagesKey] = originalMessages;
 
 	return summary;
+}
+
+async function BringIntoView(msgIndex)
+{
+	// Give a chance for elements to load in
+	await Sleep(75);
+
+	const chatContainer = document.getElementById("chat");
+	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
+	if (summaryMsgElement && chatContainer)
+	{
+		const mesTextElement = summaryMsgElement.querySelector(".mes_text");
+		if (mesTextElement)
+		{
+			// Give some time for elements to fade-in and such.
+			//setTimeout(() => { mesTextElement.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" }); }, 200);
+			setTimeout(() => { chatContainer.scrollTop = mesTextElement.offsetTop - chatContainer.offsetTop; }, 200);
+		}
+	}
 }
 
 // =========================
@@ -315,21 +350,25 @@ const kMsgActionButtons = [
 			await gST.reloadCurrentChat();
 
 			// Find and update the HTML element for the summary message with a loading spinner
-			const summaryMsgElement = document.querySelector(`.mes[mesid="${selection.start}"]`);
-			if (summaryMsgElement)
 			{
-				const mesTextElement = summaryMsgElement.querySelector(".mes_text");
-				if (mesTextElement)
+				const summaryMsgElement = document.querySelector(`.mes[mesid="${selection.start}"]`);
+				if (summaryMsgElement)
 				{
-					// Create and insert loading spinner
-					// We don't need to delete the spinner as reloading the chat will destroy it for us.
-					const spinner = document.createElement("div");
-					spinner.className = "ils_loading_spinner";
-					spinner.innerHTML = '<i class="fa-solid fa-spinner"></i>';
-					mesTextElement.innerHTML = "";
-					mesTextElement.appendChild(spinner);
+					const mesTextElement = summaryMsgElement.querySelector(".mes_text");
+					if (mesTextElement)
+					{
+						// Create and insert loading spinner
+						// We don't need to delete the spinner as reloading the chat will destroy it for us.
+						const spinner = document.createElement("div");
+						spinner.className = "ils_loading_spinner";
+						spinner.innerHTML = '<i class="fa-solid fa-spinner"></i>';
+						mesTextElement.innerHTML = "";
+						mesTextElement.appendChild(spinner);
+					}
 				}
 			}
+
+			BringIntoView(selection.start)
 
 			// Now await for the LLM response to complete
 			let response = "";
@@ -371,6 +410,8 @@ const kMsgActionButtons = [
 			}
 
 			gST.activateSendButtons();
+
+			BringIntoView(selection.start);
 
 			ClearSelection();
 		},
@@ -414,6 +455,8 @@ const kMsgActionButtons = [
 			await gST.saveChat();
 			await gST.reloadCurrentChat();
 
+			BringIntoView(selection.start);
+
 			ClearSelection();
 		},
 
@@ -451,6 +494,8 @@ const kHeaderButtons = [
 
 			await gST.saveChat();
 			await gST.reloadCurrentChat();
+
+			BringIntoView(msgIndex);
 		}
 	},
 	// Regenerate
@@ -478,6 +523,8 @@ const kHeaderButtons = [
 			// Save and reload to reflect the final response in the UI
 			await gST.saveChat();
 			await gST.reloadCurrentChat();
+
+			BringIntoView(msgIndex);
 		}
 	},
 ];
@@ -761,7 +808,7 @@ function HandleMessagesHeaderClick(containerHeaderDiv)
 // =========================
 // Event Handlers
 // =========================
-document.addEventListener("click", e =>
+function MainClickHandler(e)
 {
 	// Header Buttons
 	for (const def of kHeaderButtons)
@@ -807,7 +854,7 @@ document.addEventListener("click", e =>
 			break;
 		}
 	}
-});
+};
 
 function OnChatChanged(data)
 {
@@ -987,11 +1034,19 @@ async function OnSettingResetToDefault()
 // =========================
 jQuery(async () =>
 {
+	const ilsInstance = GetILSInstance()
+
 	gSettings = await LoadSettings();
 
 	// Setup Settings Menu
 	const settingsHtml = await $.get(kSettingsFile);
-	$("#extensions_settings").append(settingsHtml);
+
+	const $extensions = $("#extensions_settings");
+	const $existing = $extensions.find(".inline-summaries-settings");
+	if ($existing.length > 0)
+		$existing.replaceWith(settingsHtml);
+	else
+		$extensions.append(settingsHtml);
 
 	// Fill In setting values
 	await UpdateSettingsUI();
@@ -1040,7 +1095,10 @@ jQuery(async () =>
 	const chatContainer = document.getElementById("chat");
 	if (chatContainer)
 	{
-		const observer = new MutationObserver(mutations =>
+		if (ilsInstance.chatObs)
+			ilsInstance.chatObs.disconnect();
+
+		ilsInstance.chatObs = new MutationObserver(mutations =>
 		{
 			for (const m of mutations)
 			{
@@ -1056,7 +1114,7 @@ jQuery(async () =>
 			}
 		});
 
-		observer.observe(chatContainer, { childList: true, subtree: true });
+		ilsInstance.chatObs.observe(chatContainer, { childList: true, subtree: true });
 	}
 	else
 	{
@@ -1064,7 +1122,14 @@ jQuery(async () =>
 	}
 
 	// Other Events
-	gST.eventSource.on(gST.eventTypes.CHAT_CHANGED, OnChatChanged);
+	if (!ilsInstance.chatChangedRegistered)
+	{
+		gST.eventSource.on(gST.eventTypes.CHAT_CHANGED, OnChatChanged);
+		ilsInstance.chatChangedRegistered = true;
+	}
+
+	document.removeEventListener("click", MainClickHandler);
+	document.addEventListener("click", MainClickHandler);
 
 	console.log("[ILS] Inline Summary - Ready");
 });
