@@ -816,7 +816,7 @@ function MainClickHandler(e)
 		const btn = e.target.closest("." + def.className);
 		if (btn)
 		{
-			const msgIndex = Number(btn.getAttribute("mesid"));
+			const msgIndex = Number(btn.closest(".mes")?.getAttribute("mesid"));
 			if (!isNaN(msgIndex))
 			{
 				def.OnClick(msgIndex);
