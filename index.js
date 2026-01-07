@@ -561,21 +561,53 @@ function RefreshMessageElements(messageDiv, msgIndex)
 	const existingOrigMsgDiv = messageDiv.querySelector(".ils_original_messages_root");
 	if (HasOriginalMessages(msgObject))
 	{
-		if (existingOrigMsgDiv)
-		{
-			// If we ever need to update elements in the div, do it here.
-			// Currently no updates are needed.
-		}
-		else
-		{
-			const newOrigMsgDiv = document.createElement("div");
-			newOrigMsgDiv.className = "ils_original_messages_root";
-			newOrigMsgDiv.setAttribute("mesid", msgIndex);
+    if (existingOrigMsgDiv) {
+      const originals = msgObject.extra[kExtraDataKey][kOriginalMessagesKey];
 
-			newOrigMsgDiv.appendChild(CreateOriginalMessagesContainer(msgIndex, msgObject));
+      // 1. Update the Root ID
+      existingOrigMsgDiv.setAttribute("mesid", msgIndex);
 
-			messageDiv.querySelector(".mes_block")?.appendChild(newOrigMsgDiv);
-		}
+      const header = existingOrigMsgDiv.querySelector(
+        ".ils_msg_container_header",
+      );
+      if (header) {
+        // 2. Update Header Attributes (Crucial for the Expand Arrow to work)
+        header.setAttribute("ils-msg-index", msgIndex);
+        header.setAttribute("ils-msg-path", JSON.stringify([msgIndex]));
+
+        // 3. Update the Text Count "Original Messages (X)"
+        // We look for the div that holds the text (it's the 2nd child, index 1)
+        if (header.children.length > 1) {
+          header.children[1].textContent = `Original Messages (${originals.length})`;
+        }
+
+        // 4. Reset the content view
+        // If we don't do this, the expanded box will still show the OLD messages
+        // from the previous summary. We collapse it to be safe.
+        const contents = existingOrigMsgDiv.querySelector(
+          ".ils_msg_container_contents",
+        );
+        const expandIcon = header.querySelector(".ils_expand_icon");
+
+        if (contents) {
+          contents.innerHTML = ""; // Clear old expanded messages
+        }
+        if (expandIcon) {
+          expandIcon.className =
+            "ils_expand_icon mes_button fa-solid fa-caret-right"; // Reset arrow to "Collapsed"
+        }
+      }
+    } else {
+      const newOrigMsgDiv = document.createElement("div");
+      newOrigMsgDiv.className = "ils_original_messages_root";
+      newOrigMsgDiv.setAttribute("mesid", msgIndex);
+
+      newOrigMsgDiv.appendChild(
+        CreateOriginalMessagesContainer(msgIndex, msgObject),
+      );
+
+      messageDiv.querySelector(".mes_block")?.appendChild(newOrigMsgDiv);
+    }
 	}
 	else if (existingOrigMsgDiv)
 	{
